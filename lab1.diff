@@ -172,21 +172,20 @@ index c0ea099..a6b0074 100644
 +
  }
 diff --git a/src/mapreduce/schedule.go b/src/mapreduce/schedule.go
-index 1d8dfa8..292cbb6 100644
+index 1d8dfa8..9c8305c 100644
 --- a/src/mapreduce/schedule.go
 +++ b/src/mapreduce/schedule.go
-@@ -1,6 +1,9 @@
+@@ -1,6 +1,8 @@
  package mapreduce
  
 -import "fmt"
 +import (
 +	"fmt"
-+	"sync/atomic"
 +)
  
  //
  // schedule() starts and waits for all tasks in the given phase (mapPhase
-@@ -30,5 +33,59 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
+@@ -30,5 +32,56 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
  	//
  	// Your code here (Part III, Part IV).
  	//
@@ -199,14 +198,14 @@ index 1d8dfa8..292cbb6 100644
 +			tasks <- DoTaskArgs{jobName, "", phase, i, n_other}
 +		}
 +	}
-+	workers := []string{}
-+	numGoroutineFinished := uint32(0)
-+	numTaskFinished := uint32(0)
-+	one_task_done := make(chan bool)
++	workers := make([]string, 0, 16)
++	numGoroutineFinished := 0
++	numTaskFinished := 0
++	one_task_done := make(chan bool, 16)
 +	all_task_done := make(chan bool)
 +	go_done := make(chan bool)
-+	finish := false
-+	for !finish {
++Outer:
++	for {
 +		select {
 +		case worker := <-registerChan:
 +			workers = append(workers, worker)
@@ -215,10 +214,10 @@ index 1d8dfa8..292cbb6 100644
 +					select {
 +					case task := <-tasks:
 +						ok := call(worker, "Worker.DoTask", task, nil)
-+						if !ok {
-+							tasks <- task
-+						} else {
++						if ok {
 +							one_task_done <- true
++						} else {
++							tasks <- task
 +						}
 +					case <-all_task_done:
 +						go_done <- true
@@ -227,22 +226,19 @@ index 1d8dfa8..292cbb6 100644
 +				}
 +			}(worker)
 +		case <-go_done:
-+			atomic.AddUint32(&numGoroutineFinished, 1)
-+			if atomic.LoadUint32(&numGoroutineFinished) == uint32(len(workers)) {
-+				finish = true
++			numGoroutineFinished++
++			if numGoroutineFinished == len(workers) {
++				break Outer
 +			}
 +		case <-one_task_done:
-+			atomic.AddUint32(&numTaskFinished, 1)
-+			if atomic.LoadUint32(&numTaskFinished) == uint32(ntasks) {
++			numTaskFinished++
++			if numTaskFinished == ntasks {
 +				for i := 0; i < len(workers); i++ {
 +					all_task_done <- true
 +				}
 +			}
 +		}
 +	}
-+	close(tasks)
-+	close(one_task_done)
-+	close(all_task_done)
 +
  	fmt.Printf("Schedule: %v done\n", phase)
  }
